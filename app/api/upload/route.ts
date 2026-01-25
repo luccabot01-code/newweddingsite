@@ -1,4 +1,4 @@
-import { put } from "@vercel/blob"
+import { createClient } from "@/lib/supabase/server"
 import { NextResponse } from "next/server"
 
 export async function POST(request: Request) {
@@ -10,14 +10,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, message: "File not found" }, { status: 400 })
     }
 
-    // Upload to Vercel Blob
-    const blob = await put(file.name, file, {
-      access: "public",
+    const supabase = await createClient()
+
+    // Generate unique filename
+    const fileExt = file.name.split(".").pop()
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`
+    const filePath = `wedding-images/${fileName}`
+
+    // Convert File to ArrayBuffer then to Buffer
+    const arrayBuffer = await file.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    // Upload to Supabase Storage
+    const { data, error } = await supabase.storage.from("wedding-media").upload(filePath, buffer, {
+      contentType: file.type,
+      upsert: false,
     })
 
-    return NextResponse.json({ success: true, url: blob.url })
+    if (error) {
+      console.error("[v0] Supabase upload error:", error)
+      return NextResponse.json({ success: false, message: error.message }, { status: 500 })
+    }
+
+    // Get public URL
+    const {
+      data: { publicUrl },
+    } = supabase.storage.from("wedding-media").getPublicUrl(filePath)
+
+    return NextResponse.json({ success: true, url: publicUrl })
   } catch (error) {
     console.error("[v0] Upload error:", error)
-    return NextResponse.json({ success: false, message: "Upload failed" }, { status: 500 })
+    return NextResponse.json(
+      { success: false, message: error instanceof Error ? error.message : "Upload failed" },
+      { status: 500 },
+    )
   }
 }
